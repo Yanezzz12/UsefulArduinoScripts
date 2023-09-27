@@ -13,7 +13,6 @@ String command3;
 void setup() 
 {
   Serial.begin(9600);
-
 }
 
 String ReadCommands()
@@ -22,6 +21,10 @@ String ReadCommands()
   commandStr = Serial.readString();
   commandStr.trim();  
 
+  command1 = "";
+  command2 = "";
+  command3 = "";
+  
   int wordCount = 0;
   for(int i = 0; i < commandStr.length(); i++)
   {
