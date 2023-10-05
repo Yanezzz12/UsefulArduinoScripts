@@ -21,16 +21,8 @@ const int contactSensorA; // = ??
 const int contactSensorB; // = ??
 const int currentBridge = 12;
 
-//Variables
-int speedPWM = 0;
-
-String commandStr;
-String command1;
-String command2;
-String command3;
-
 void setup() 
-{
+{ 
   Serial.begin(9600);  
 
   //Initializinng variables
@@ -50,12 +42,6 @@ void setup()
   digitalWrite(currentBridge, HIGH);  
 }
 
-int map(int value)
-{
-  value += 127;
-  return value;
-}
-
 int ContactSensor(int numSensor)
 {
   int registeredValue;
@@ -67,15 +53,22 @@ int ContactSensor(int numSensor)
   return registeredValue; 
 }
 
+int map(int value)
+{
+  value += 127;
+  return value;
+}
+
 String ReadCommands()
 { 
+  String commandStr;
+  String command1 = "";
+  String command2 = "";
+  String command3 = "";
+  
   while (Serial.available() == 0) {} 
   commandStr = Serial.readString();
   commandStr.trim();  
-
-  command1 = "";
-  command2 = "";
-  command3 = "";
 
   int wordCount = 0;
   for(int i = 0; i < commandStr.length(); i++)
@@ -92,18 +85,9 @@ String ReadCommands()
   return command1, command2, command3;  
 }
 
-void MoveRobot(float distance, float angle) //Distance in [cm], angle in degrees [°]
-{
-  //First: Move to angle, then move distance
-
-  
-
-
-  
-}
-
 void MotorCommand(String command1, String command2, String command3)
 {
+  int speedPWM = 0;
   int baseVelocity = 40;
   
   if(command2 == "ON")
@@ -174,35 +158,73 @@ void Action(String command1, String command2, String command3)
 {
   if(command1 == "SENSOR")
     Serial.println(ContactSensor(command2.toInt()));
+  else if(command1 == "ROTATION")
+    RotateRobot(command2.toInt());
   else
     Serial.println("Unknown!");
 }
 
-void rotateRobot(float angle)
+void RotateRobot(float angle)
 { 
-  float redefine = abs(angle) / 90.0f;
+  //This parameters show a 90 degree rotation
+  float baseRotation = 90.0f;
+  float baseTime = 875.0f;
   int deviation = 50;
+  
+  float redefine = abs(angle) / baseRotation;
 
-  //This parameters show a 90 degree rotation in positive direction
-  if(angle >= 0)
+  if(angle > 0)
   {
-    MotorCommand("A1", "SPEED", "35");
-    MotorCommand("A2", "SPEED", "35");
-    delay(int(875.0f * redefine) + deviation);
+    MotorCommand("A1", "SPEED", "40");
+    MotorCommand("A2", "SPEED", "40");
+    delay(int(baseTime * redefine) + deviation);
     MotorCommand("A1", "OFF", "");
     MotorCommand("A2","OFF", "");
-    delay(10000);
   }
   else if(angle < 0)
   {
-    MotorCommand("A1", "SPEED", "-35");
-    MotorCommand("A2", "SPEED", "-35");
-    delay(int(875.0f * redefine) + deviation);
+    MotorCommand("A1", "SPEED", "-40");
+    MotorCommand("A2", "SPEED", "-40");
+    delay(int(baseTime * redefine) + deviation);
     MotorCommand("A1", "OFF", "");
     MotorCommand("A2","OFF", "");
-    delay(10000);
   }
+  else{}
+}
+
+void Scroll(float distance) //Correct this parameters
+{
+  //This parameters shows a 10 [cm] scroll
+  float baseDistance = 10.0f;
+  float baseTime = 875.0f;
+  int deviation = 50;
   
+  float redefine = abs(distance) / baseDistance;
+
+  if(distance > 0)
+  {
+    MotorCommand("A1", "SPEED", "40");
+    MotorCommand("A2", "SPEED", "-40");
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else if(distance < 0) 
+  {
+    MotorCommand("A1", "SPEED", "-40");
+    MotorCommand("A2", "SPEED", "40");
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else{}
+}
+
+void MoveRobot(float angle, float distance) //Distance in [cm], angle in degrees [°]
+{
+  //First: Move to angle, then move distance
+  RotateRobot(angle);
+  Scroll(distance);
 }
 
 void loop() 
@@ -216,7 +238,9 @@ void loop()
   //command1, command2, command3 = ReadCommands();
   //Action(command1, command2, command3);
 
-  rotateRobot(-90);
+  MoveRobot(10, 90);
+
+  while(true) {}
 
 
 
