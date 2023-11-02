@@ -5,15 +5,15 @@ PEREZ YANEZ MIGUEL ANGEL
 */
 
 //Predetermined values
-const float predeterminedDistance = 10.0f;
-const float predeterminedRotation = 45.0f;
+const float preDistance = 10.0f;
+const float preRotation = 50.0f;
 
 //Constants
 #define MOTION Scroll(1000.0f)
 #define FORWARD Scroll(10.0f)
 #define BACK Scroll(-10.0f)
-#define TURNLEFT RotateRobot(45.0f)
-#define TURNRIGHT RotateRobot(-45.0f)
+#define TURNLEFT RotateRobot(preRotation)
+#define TURNRIGHT RotateRobot(-preRotation)
 #define STOP Scroll(0.0f)
 #define MSG Serial.println("Hola mundo!")
 
@@ -23,9 +23,11 @@ const int RightMotor = 5; //~ (Goes to 15)
 const int Vel1 = 11;      //~ (Goes to 1)
 const int Vel2 = 10;      //~ (Goes to 9)
 
-const int leftContactSens = 2; // 
-const int rightContactSens = 3; //
+const int leftContactSens = 2; 
+const int rightContactSens = 3; 
 const int currentBridge = 12;
+const int leftInfraSens = A0;
+const int rightInfraSens = A5;
 
 void setup() 
 { 
@@ -40,6 +42,8 @@ void setup()
   pinMode(currentBridge, OUTPUT);
   pinMode(leftContactSens, INPUT_PULLUP);
   pinMode(rightContactSens, INPUT_PULLUP);
+  pinMode(leftInfraSens, INPUT); 
+  pinMode(rightInfraSens, INPUT);
 
   //Set to 0 all values
   digitalWrite(Vel1, LOW);
@@ -48,6 +52,27 @@ void setup()
   digitalWrite(RightMotor, LOW);  
 
   digitalWrite(currentBridge, HIGH);  
+
+  /*
+  attachInterrupt(digitalPinToInterrupt(leftContactSens), InterruptProcess, LOW);
+  attachInterrupt(digitalPinToInterrupt(rightContactSens), InterruptProcess, LOW);
+  */
+}
+
+bool InfraredSensor(char sensor)
+{
+  float infraValue;
+  float sensibilidad = 400.0f;
+  
+  if(sensor == 'L')
+    infraValue = analogRead(leftInfraSens);
+  else if(sensor == 'R')
+    infraValue = analogRead(rightInfraSens);
+
+  if(infraValue > sensibilidad)
+    return 0;
+  else 
+    return 1;
 }
 
 int ContactSensor(char sensor)
@@ -61,10 +86,140 @@ int ContactSensor(char sensor)
   return registeredValue; 
 }
 
-int map(int value)
+void RotateRobot(float angle)
+{ 
+  //This parameters show a 90 degree rotation
+  const float baseRotation = 90.0f;
+  const float baseTime = 800.0f;
+  const int deviation = 50;
+  const String leftVel = "40";
+  const String rightVel = "40";
+  
+  float redefine = abs(angle) / baseRotation;
+
+  if(angle > 0)
+  {
+    MotorCommand("A1", "SPEED", rightVel);
+    MotorCommand("A2", "SPEED", leftVel);
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else if(angle < 0)
+  {
+    MotorCommand("A1", "SPEED", "-" + rightVel);
+    MotorCommand("A2", "SPEED", "-" + leftVel);
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else{}
+}
+
+void Scroll(float distance)
 {
-  value += 127;
-  return value;
+  //This parameters shows a 10 [cm] scroll
+  const float baseDistance = 10.0f;
+  const float baseTime = 700.0f;
+  const int deviation = 50;
+  const String leftVel = "45";
+  const String rightVel = "38"; //54
+  
+  float redefine = abs(distance) / baseDistance;
+
+  if(distance > 999)
+  {
+    MotorCommand("A1", "SPEED", rightVel);
+    MotorCommand("A2", "SPEED", "-" + leftVel);
+  }
+  else if(distance > 0)
+  {
+    MotorCommand("A1", "SPEED", leftVel);
+    MotorCommand("A2", "SPEED", "-" + rightVel);
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else if(distance < 0) 
+  {
+    MotorCommand("A1", "SPEED", "-" + leftVel);
+    MotorCommand("A2", "SPEED", rightVel);
+    delay(int(baseTime * redefine) + deviation);
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else if(distance == 0)
+  {
+    MotorCommand("A1", "OFF", "");
+    MotorCommand("A2","OFF", "");
+  }
+  else { }
+}
+
+void ObstacleAvoidance() //Obstacle avoidance algorithm 
+{
+  /*  COMMANDS
+  ContactSensor('L', 'R');
+  FORWARD
+  BACK
+  TURNLEFT
+  TURNRIGHT
+  STOP
+  */
+
+  int state = 0;
+
+  state = 3 - (ContactSensor('L') * 2 + ContactSensor('R') * 1);
+
+  if(state == 0)
+    state = 3 - (InfraredSensor('L') * 2 + InfraredSensor('R') * 1);
+
+  switch(state)
+  {
+    case 0:
+      MOTION;
+      break;
+    case 1:
+      STOP;
+      BACK;
+      TURNLEFT;
+      break;
+    case 2:
+      STOP;
+      BACK;
+      TURNRIGHT;
+      break;
+    case 3:
+      STOP;
+      BACK;
+      TURNLEFT;
+      TURNLEFT;
+      FORWARD;
+      TURNRIGHT;
+      break;
+ }
+}
+
+void loop() 
+{
+  ObstacleAvoidance();
+  
+  /*
+  Scroll(20.0f);  RotateRobot(90.0f);
+  while(true) {} 
+  // */
+
+  /*
+  Serial.print("Lectura Izq: "); Serial.println(InfraredSensor('L'));
+  Serial.print("Lectura Dch: "); Serial.println(InfraredSensor('R'));
+  delay(1000);
+  // */
+
+  /*
+  Serial.print("Left: ");   Serial.println(ContactSensor('L'));
+  Serial.print("Right: ");  Serial.println(ContactSensor('R'));
+  delay(1000);
+  // */
 }
 
 String ReadCommands()
@@ -93,9 +248,9 @@ String ReadCommands()
   return command1, command2, command3;  
 }
 
-//Motor A1 -> Derecho, Motor A2 -> Izquierdo
 void MotorCommand(String command1, String command2, String command3)
 {
+  //Motor A1 -> Derecho, Motor A2 -> Izquierdo
   const int baseVelocity = 40;
   int speedPWM = 0;
   
@@ -162,155 +317,15 @@ void MotorCommand(String command1, String command2, String command3)
     Serial.println("Unknown command!");
 }
 
-void Action(String command1, String command2, String command3)
-{
-  if(command1 == "SENSOR")
-    Serial.println(ContactSensor(command2.toInt()));
-  else if(command1 == "MOVE")
-    MoveRobot(command2.toFloat(), command3.toFloat()); 
-  else if(command1 == "ROTATION")
-    RotateRobot(command2.toInt());
-  else
-    Serial.println("Unknown!");
-}
-
-void RotateRobot(float angle)
-{ 
-  //This parameters show a 90 degree rotation
-  const float baseRotation = 90.0f;
-  const float baseTime = 845.0f;
-  const int deviation = 50;
-  
-  float redefine = abs(angle) / baseRotation;
-
-  if(angle > 0)
-  {
-    MotorCommand("A1", "SPEED", "40");
-    MotorCommand("A2", "SPEED", "40");
-    delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else if(angle < 0)
-  {
-    MotorCommand("A1", "SPEED", "-40");
-    MotorCommand("A2", "SPEED", "-40");
-    delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else{}
-}
-
-void Scroll(float distance)
-{
-  //This parameters shows a 10 [cm] scroll
-  const float baseDistance = 10.0f;
-  const float baseTime = 780.0f;
-  const int deviation = 50;
-  
-  float redefine = abs(distance) / baseDistance;
-
-  if(distance > 999)
-  {
-    MotorCommand("A1", "SPEED", "45");
-    MotorCommand("A2", "SPEED", "-45");
-  }
-  else if(distance > 0)
-  {
-    MotorCommand("A1", "SPEED", "45");
-    MotorCommand("A2", "SPEED", "-45");
-    delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else if(distance < 0) 
-  {
-    MotorCommand("A1", "SPEED", "-45");
-    MotorCommand("A2", "SPEED", "45");
-    delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else if(distance == 0)
-  {
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else{ }
-}
-
-void MoveRobot(float angle, float distance) //Distance in [cm], angle in degrees [°]
+void MoveRobot(float angle, float distance)
 {
   //First: Move to angle, then move distance
   RotateRobot(angle);
   Scroll(distance);
 }
 
-void ObstacleAvoidance() //Obstacle avoidance algorithm (State machines pendient)
+int map(int value)
 {
-  /*  COMMANDS
-  ContactSensor('L', 'R');
-  FORWARD
-  BACK
-  TURNLEFT
-  TURNRIGHT
-  STOP
-  */
-  
-  if(ContactSensor('R') == LOW) //0 = SI encontró obstáculo 
-  {
-    STOP;
-    if(ContactSensor('L') == LOW) //SI encontró obstáculo
-    {
-      BACK;
-      TURNLEFT;
-      TURNLEFT;
-      FORWARD;
-      TURNRIGHT;
-      TURNRIGHT;
-    }
-    else //NO encontró obstáculo
-    {
-      BACK;
-      TURNLEFT;
-      FORWARD;
-      TURNRIGHT;
-    }
-  }
-  else if(ContactSensor('L') == LOW)
-  {
-    STOP;
-    BACK;
-    TURNRIGHT;
-    FORWARD;
-    TURNLEFT;
-  }
-  else { MOTION; }
-}
-
-int x = 0;
-void loop() 
-{
-  delay(1000); //A brief interval before starting
-
-  if(x == 0)
-  {
-    MOTION;
-    x++;
-    Serial.println("Sólo debe aparecer una vez");
-  }
-    
-  ObstacleAvoidance();
-
-  /*Scroll(20.0f);
-  RotateRobot(90.0f);
-  while(true) {} /*/
-
-  /*
-  Serial.print("Left: ");
-  Serial.println(ContactSensor('L'));
-  Serial.print("Right: ");
-  Serial.println(ContactSensor('R'));
-  */
+  value += 127;
+  return value;
 }
