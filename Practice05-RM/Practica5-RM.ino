@@ -6,7 +6,7 @@ PEREZ YANEZ MIGUEL ANGEL
 
 //Predetermined values
 const float preDistance = 10.0f;
-const float preRotation = 50.0f;
+const float preRotation = 90.0f;
 //Constants
 #define MOTION Scroll(1000.0f)
 #define FORWARD Scroll(preDistance)
@@ -18,11 +18,12 @@ const float preRotation = 50.0f;
 
 //Mathematic values
 const float wheelRadius = 4.3f; // [cm]
+const float distanceAxis = 8.9f; // [cm]
 //Pin setup
-const byte LeftMotor = 6;  //~ (Goes to 2)
-const byte RightMotor = 5; //~ (Goes to 15)
-const byte Vel1 = 11;      //~ (Goes to 1)
-const byte Vel2 = 10;      //~ (Goes to 9)
+const byte leftMotor = 5;  //~ (Goes to 2)
+const byte rightMotor = 6; //~ (Goes to 15)
+const byte vel1 = 10;      //~ (Goes to 1)
+const byte vel2 = 11;      //~ (Goes to 9)
 //Sensors
 const byte leftContactSens = 13; 
 const byte rightContactSens = 8; 
@@ -30,58 +31,59 @@ const byte currentBridge = 12;
 const byte leftInfraSens = 19;   
 const byte rightInfraSens = 9;
 //Encoder
-const byte rightEncoderA = 2; //Interruption 1
-const byte leftEncoderA = 3; //Interruption 2
+const byte rightEncoderA = 2;   //Interruption 1
+const byte leftEncoderA = 3;    //Interruption 2
 const byte leftEncoderB = 4;
 const byte rightEncoderB = 7;
 //LDR sensor
-const byte LDR1 = 14;
-const byte LDR2 = 15;
-const byte LDR3 = 16;
-const byte LDR4 = 17;
-const byte LDR5 = 18;
+const byte LDR1 = 14; // Amarillo (A0)
+const byte LDR2 = 15; // Blanco   (A1)
+const byte LDR3 = 16; // Naranja  (A2)
+const byte LDR4 = 17; // Verde    (A3)
+const byte LDR5 = 18; // Morado   (A4)
+//Interruptions
+volatile long rightCounter;
+volatile long leftCounter;
+//Strings
+String commandStr;
+String command1;
+String command2;
+String command3;
 
 void setup() 
 { 
   Serial.begin(9600);  
-
   /*===PIN SETUP===*/
   //Motors
-  pinMode(LeftMotor, OUTPUT);
-  pinMode(RightMotor, OUTPUT);
-  pinMode(Vel1, OUTPUT);
-  pinMode(Vel2, OUTPUT);
-
+  pinMode(leftMotor, OUTPUT);
+  pinMode(rightMotor, OUTPUT);
+  pinMode(vel1, OUTPUT);
+  pinMode(vel2, OUTPUT);
   //Sensors
   pinMode(currentBridge, OUTPUT);
   pinMode(leftInfraSens, INPUT); 
   pinMode(rightInfraSens, INPUT);
   pinMode(leftContactSens, INPUT_PULLUP);
   pinMode(rightContactSens, INPUT_PULLUP);
-
   //Encoders
   pinMode(leftEncoderA, INPUT);
   pinMode(rightEncoderA, INPUT);
   pinMode(leftEncoderB, INPUT);
   pinMode(rightEncoderB, INPUT);
-
   //LDR sensors
   pinMode(LDR1, INPUT);
   pinMode(LDR2, INPUT);
   pinMode(LDR3, INPUT);
   pinMode(LDR4, INPUT);
   pinMode(LDR5, INPUT);
-
   /*===INITIAL VALUES===*/
   //Turns off motors
-  digitalWrite(Vel1, LOW);
-  digitalWrite(Vel2, LOW);
-  digitalWrite(LeftMotor, LOW);
-  digitalWrite(RightMotor, LOW);  
-
+  digitalWrite(vel1, LOW);
+  digitalWrite(vel2, LOW);
+  digitalWrite(leftMotor, LOW);
+  digitalWrite(rightMotor, LOW);  
   //Activates logic
   digitalWrite(currentBridge, HIGH);  
-
   //Encoder setup
   attachInterrupt(digitalPinToInterrupt(leftEncoderA), LeftEncoderInterrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(rightEncoderA), RightEncoderInterrupt, RISING);
@@ -89,33 +91,201 @@ void setup()
 
 void loop()
 {
+  //TestArrayLDR();
+  //MaxLightValue();
+  //SerialTestMotors();
   //ObstacleAvoidance();
 
-  /*/
-  Serial.print("Right: ");
-  Serial.println(rightCounter);
-
-  Serial.print("Left: ");
-  Serial.println(leftCounter);
-  delay(100);
-  // */
-  
+  LeftControl(1200);
+    
   /*/ 
-  Scroll(0.0f);  RotateRobot(90.0f);
+  Scroll(0.0f); RotateRobot(90.0f);
   while(true) {} 
   // */
+}
 
-  /*/
-  Serial.print("Lectura Izq: "); Serial.print(analogRead(leftInfraSens)); Serial.print(" "); //Serial.println(InfraredSensor('L'));
-  Serial.print("Lectura Dch: "); Serial.println(analogRead(rightInfraSens)); //Serial.println(InfraredSensor('R'));
-  delay(600);
-  // */
+//Basic setup                 //Correct for left and right use
+long previousTime = 0;
+float previousError = 0;
+float Iedt = 0;
 
-  /*/
-  Serial.print("Left: ");   Serial.println(ContactSensor('L'));
-  Serial.print("Right: ");  Serial.println(ContactSensor('R'));
-  delay(1000);
-  // */
+bool prot = true;
+
+void LeftControl(int target)
+{
+  //Constants
+  float tolerance = 1.0f;
+  
+  //Control constants
+  float Kp = 1.0f;
+  float Ki = -0.01f;
+  float Kd = -0.024f;
+
+  //Time difference
+  long currentPosition = leftCounter;
+  long currentTime = micros();
+  float dt = ((float)(currentTime - previousTime))/(1.0e6);
+  previousTime = currentTime;  
+  
+  short error = currentPosition - target;
+  
+  //Derivative & Integral
+  float Dedt = (error - previousError)/(dt);
+  Iedt = Iedt + (error * dt);
+
+  //PID Control Signal
+  float uFunction = (Kp * error) + (Kd * Dedt) + (Ki * Iedt);
+
+  int limitVelocity = 60;
+  if(uFunction > limitVelocity)
+    uFunction = limitVelocity;
+  else if(uFunction < -limitVelocity)
+    uFunction = -limitVelocity;
+
+  /*
+  Serial.print("u(t)= ");
+  Serial.println(uFunction);*/
+
+  if(abs(error) > 30)
+    MotorMovement("L", uFunction);
+  else
+    MotorMovement("LOFF", 0);
+
+  /*
+  Serial.print("Error: ");
+  Serial.println(error);*/
+  
+  Serial.print("Target: ");
+  Serial.print(target);
+  Serial.print(", ");
+  Serial.print("Position: ");
+  Serial.println(leftCounter);  
+}
+
+void RightControl(int target) //Check & Correct
+{
+  //Constants
+  float tolerance = 1.0f;
+  
+  //Control constants
+  float Kp = 1.0f;
+  float Ki = -0.01f;
+  float Kd = -0.024f;
+
+  //Time difference
+  long currentPosition = rightCounter;
+  long currentTime = micros();
+  float dt = ((float)(currentTime - previousTime))/(1.0e6);
+  previousTime = currentTime;  
+  
+  short error = currentPosition - target;
+  
+  //Derivative & Integral
+  float Dedt = (error - previousError)/(dt);
+  Iedt = Iedt + (error * dt);
+
+  //PID Control Signal
+  float uFunction = (Kp * error) + (Kd * Dedt) + (Ki * Iedt);
+
+  int limitVelocity = 60;
+  if(uFunction > limitVelocity)
+    uFunction = limitVelocity;
+  else if(uFunction < -limitVelocity)
+    uFunction = -limitVelocity;
+
+  /*
+  Serial.print("u(t)= ");
+  Serial.println(uFunction);*/
+
+  if(abs(error) > 30)
+    MotorMovement("R", uFunction);
+  else
+    MotorMovement("ROFF", 0);
+
+  /*
+  Serial.print("Error: ");
+  Serial.println(error);*/
+  
+  Serial.print("Target: ");
+  Serial.print(target);
+  Serial.print(", ");
+  Serial.print("Position: ");
+  Serial.println(leftCounter);  
+}
+
+void MotorMovement(String command, int speedPWM) 
+{
+  //Allows motor movement, SpeedPWM: Range[-127, 127]
+  Serial.print("Command: ");
+  Serial.print(command);
+  Serial.print(", ");
+  Serial.println(speedPWM);
+
+  if(command == "L" || command == "R") //Can be tweaked yet
+  {
+    if(-10 < speedPWM && speedPWM < 10)
+    {
+      if(command == "L") 
+        MotorMovement("LOFF", 0);
+      else if(command == "R")
+        MotorMovement("ROFF", 0);
+      return;
+    }  
+  }
+  
+  speedPWM = Map(speedPWM);
+
+  if(command == "L")
+  {
+    digitalWrite(vel1, HIGH);
+    analogWrite(leftMotor, speedPWM);  
+  }
+  else if(command == "R")
+  {
+    digitalWrite(vel2, HIGH);
+    analogWrite(rightMotor, speedPWM);
+  }
+  else if(command == "LOFF")
+  {
+    digitalWrite(leftMotor, LOW);
+    digitalWrite(vel1, LOW); 
+  }
+  else if(command == "ROFF")
+  {
+    digitalWrite(rightMotor, LOW);
+    digitalWrite(vel2, LOW); 
+  }
+  else if(command == "OFF")
+  {
+    digitalWrite(leftMotor, LOW);
+    digitalWrite(vel1, LOW);
+    digitalWrite(rightMotor, LOW);
+    digitalWrite(vel2, LOW); 
+  }
+  else
+    Serial.println("Unknown command!");
+}
+
+String ReadCommands()
+{ 
+  while (Serial.available() == 0) {} 
+  commandStr = Serial.readString();
+  commandStr.trim();  
+
+  command1 = "";
+  command2 = "";
+
+  int wordCount = 0;
+  for(int i = 0; i < commandStr.length(); i++)
+  {
+    if(commandStr[i] == ' ')      
+      wordCount++;
+    else if(wordCount == 0)
+      command1 += commandStr[i];
+    else if(wordCount == 1)
+      command2 += commandStr[i];
+  }
+  return command1, command2;  
 }
 
 bool InfraredSensor(char sensor) 
@@ -137,21 +307,21 @@ bool InfraredSensor(char sensor)
 byte MaxLightValue()
 {
   //Detects LDR with higher value and returns an index
-  byte sensorQuantity = 5;
+  const byte sensorQuantity = 5;
   byte maxLightIndex = 0;
   unsigned int LDRvalue[sensorQuantity];
   
-  for(byte i = 0; i < sensorQuantity + 1; i++)
+  for(byte i = 0; i < sensorQuantity; i++)
     LDRvalue[i] = analogRead(i + 14);
-
-  /*/ //Shows LDR values
-  Serial.print("Arreglo de LDRs: ");
-  for(byte i = 0; i < sensorQuantity + 1; i++)
-    Serial.println(LDRvalue[i]);*/
-
-  for(byte i = 1; i < sensorQuantity + 1; i++)
+    
+  for(byte i = 1; i < sensorQuantity; i++)
     if(LDRvalue[maxLightIndex] < LDRvalue[i])
       maxLightIndex = i;
+
+  //
+  Serial.print("Max value: ");
+  Serial.println(maxLightIndex);
+  // */
   return maxLightIndex; 
 }
 
@@ -173,53 +343,21 @@ void RotateRobot(float angle)
   const float baseRotation = 90.0f;
   const float baseTime = 900.0f;
   const int deviation = 50;
-  String leftVel = "40";
-  String rightVel = "40";
+  int leftVel = 40;
+  int rightVel = 40;
   
   float redefine = abs(angle) / baseRotation;
 
   if(angle < 0)
   {
-    leftVel = "-" + leftVel;
-    rightVel = "-" + rightVel;
+    leftVel *= -1;
+    rightVel *= -1;
   }
 
-  MotorCommand("A1", "SPEED", rightVel);
-  MotorCommand("A2", "SPEED", leftVel);
+  MotorMovement("R", rightVel);
+  MotorMovement("L", leftVel);
   delay(int(baseTime * redefine) + deviation);
-  MotorCommand("A1", "OFF", "");
-  MotorCommand("A2","OFF", "");
-}
-
-void EncoderRotate(float angle)
-{
-  String leftVel = "40";
-  String rightVel = "40";
-  float baseRotation = 90.0f;
-  float baseTicks = 170.0f;
-
-  int leftCounter = LeftTickValue();
-  int rightCounter = RightTickValue();
-
-  baseTicks = baseTicks * (abs(angle) / baseRotation);
-  Serial.print("Base Ticks: ");
-  Serial.println(baseTicks);
-
-  if(angle < 0)
-  {
-    leftVel = "-" + leftVel;
-    rightVel = "-" + rightVel;
-  }  
-
-  if(abs(leftCounter) > int(baseTicks))
-    MotorCommand("A2","OFF", "");
-  else 
-    MotorCommand("A2", "SPEED", leftVel);  
-
-  if(abs(rightCounter) > int(baseTicks))
-    MotorCommand("A1","OFF", "");
-  else 
-    MotorCommand("A1", "SPEED", rightVel);
+  MotorMovement("OFF", 0);
 }
 
 void Scroll(float distance)
@@ -228,38 +366,32 @@ void Scroll(float distance)
   const float baseDistance = 10.0f;
   const float baseTime = 700.0f;
   const int deviation = 50;
-  const String leftVel = "45";
-  const String rightVel = "38"; //54
+  const int leftVel = 45;
+  const int rightVel = 38; 
   
   float redefine = abs(distance) / baseDistance;
 
   if(distance > 999)
   {
-    MotorCommand("A1", "SPEED", rightVel);
-    MotorCommand("A2", "SPEED", "-" + leftVel);
+    MotorMovement("L", -leftVel);
+    MotorMovement("R", rightVel);
   }
   else if(distance > 0)
   {
-    MotorCommand("A1", "SPEED", leftVel);
-    MotorCommand("A2", "SPEED", "-" + rightVel);
+    MotorMovement("L", -leftVel);
+    MotorMovement("R", rightVel);
     delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
+    MotorMovement("OFF", 0);
   }
   else if(distance < 0) 
   {
-    MotorCommand("A1", "SPEED", "-" + leftVel);
-    MotorCommand("A2", "SPEED", rightVel);
+    MotorMovement("L", leftVel);
+    MotorMovement("R", -rightVel);
     delay(int(baseTime * redefine) + deviation);
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
+    MotorMovement("OFF", 0);
   }
   else if(distance == 0)
-  {
-    MotorCommand("A1", "OFF", "");
-    MotorCommand("A2","OFF", "");
-  }
-  else { }
+    MotorMovement("OFF", 0);
 }
 
 void MoveRobot(float angle, float distance)
@@ -284,8 +416,9 @@ void ObstacleAvoidance() //Obstacle avoidance algorithm
 
   state = 3 - (ContactSensor('L') * 2 + ContactSensor('R') * 1);
 
+  /*
   if(state == 0)
-    state = 3 - (InfraredSensor('L') * 2 + InfraredSensor('R') * 1);
+    state = 3 - (InfraredSensor('L') * 2 + InfraredSensor('R') * 1);*/
 
   switch(state)
   {
@@ -313,7 +446,6 @@ void ObstacleAvoidance() //Obstacle avoidance algorithm
  }
 }
 
-volatile long leftCounter;
 void LeftEncoderInterrupt()
 {
   if(digitalRead(leftEncoderA) == HIGH)
@@ -328,7 +460,6 @@ void LeftEncoderInterrupt()
       leftCounter--;
 }
 
-volatile long rightCounter;
 void RightEncoderInterrupt()
 {
   if(digitalRead(rightEncoderA) == HIGH)
@@ -343,108 +474,83 @@ void RightEncoderInterrupt()
       rightCounter++;
 }
 
-String ReadCommands()
-{ 
-  //Reads a string from serial monitor and decomposes in arguments to be stored in command_n
-  String commandStr;
-  String command1 = "";
-  String command2 = "";
-  String command3 = "";
-  
-  while (Serial.available() == 0) {} 
-  commandStr = Serial.readString();
-  commandStr.trim();  
-
-  int wordCount = 0;
-  for(int i = 0; i < commandStr.length(); i++)
-  {
-    if(commandStr[i] == ' ')      
-      wordCount++;
-    else if(wordCount == 0)
-      command1 += commandStr[i];
-    else if(wordCount == 1)
-      command2 += commandStr[i];
-    else if(wordCount == 2)
-      command3 += commandStr[i];
-  }
-  return command1, command2, command3;  
-}
-
-void MotorCommand(String command1, String command2, String command3) //Refactor needed
+void TestContact()
 {
-  //Allows motor control (A1 -> Right, A2 -> Left)
-  const int baseVelocity = 40;
-  int speedPWM = 0;
-  
-  if(command2 == "ON")
-  { 
-    if(command1 == "A1")
-    {
-      if(command3 == "LEFT" ||  command3 == "RIGHT")
-        analogWrite(Vel1, baseVelocity);
-        
-      if(command3 == "LEFT")
-        digitalWrite(LeftMotor, LOW);
-      else if(command3 == "RIGHT")
-        digitalWrite(LeftMotor, HIGH);
-    }
-    else if(command1 = "A2")
-    {
-      if(command3 == "LEFT" ||  command3 == "RIGHT")
-        analogWrite(Vel2, baseVelocity);
-      
-      if(command3 == "LEFT")
-        digitalWrite(RightMotor, LOW);
-      else if(command3 == "RIGHT")
-        digitalWrite(RightMotor, HIGH);
-    }  
-  }
-  else if(command2 == "SPEED") 
-  {
-    speedPWM = command3.toInt();
-
-    //Protects circuits
-    if(-10 < speedPWM && speedPWM < 10)
-    {
-      MotorCommand(command1, "OFF", command3);
-      return;
-    }
-    
-    speedPWM = map(speedPWM);
-    
-    if(command1 == "A1")
-    {
-      digitalWrite(Vel1, HIGH);
-      analogWrite(LeftMotor, speedPWM);    
-    }
-    else if(command1 = "A2")
-    {
-      digitalWrite(Vel2, HIGH);
-      analogWrite(RightMotor, speedPWM);  
-    }
-  }
-  else if(command2 == "OFF")
-  {
-    if(command1 == "A1") //Check if can be tweaked
-    {
-      digitalWrite(LeftMotor, LOW);
-      digitalWrite(Vel1, LOW);  
-    }
-    else if(command1 == "A2")
-    {
-      digitalWrite(RightMotor, LOW);
-      digitalWrite(Vel2, LOW); 
-    }
-  }
-  else
-    Serial.println("Unknown command!");
+  Serial.print("Left: ");   Serial.println(ContactSensor('L'));
+  Serial.print("Right: ");  Serial.println(ContactSensor('R'));
+  delay(1000);
 }
 
-int map(int value) 
+void TestInfrared()
+{
+  Serial.print("Lectura Izq: "); 
+  Serial.print(analogRead(leftInfraSens)); 
+  //Serial.println(InfraredSensor('L'));
+
+  Serial.print(", Lectura Derecha: "); 
+  Serial.print(analogRead(rightInfraSens)); 
+  //Serial.println(InfraredSensor('R'));
+
+  delay(600);
+}
+
+void TestEncoders()
+{
+  Serial.print("Right: ");
+  Serial.print(rightCounter);
+  Serial.print(", Left: ");
+  Serial.println(leftCounter);
+  delay(100);
+}
+
+void TestArrayLDR()
+{
+  const byte sensorQuantity = 5;
+  unsigned int LDRvalue[sensorQuantity];
+  
+  for(byte i = 0; i < sensorQuantity; i++)
+    LDRvalue[i] = analogRead(i + 14);
+  
+  Serial.print("Valores: ");
+  for(byte i = 0; i < sensorQuantity; i++)
+  {
+    Serial.print(LDRvalue[i]);
+    Serial.print(", ");
+  }
+  Serial.println(" ");
+  delay(1000);
+}
+
+void SerialTestMotors()
+{
+  command1, command2 = ReadCommands();
+  MotorMovement(command1, command2.toInt());
+}
+
+short Map(short value) 
 {
   //Input: Range[-127, 127], Output: Range[0, 255]
   value += 127;
   return value;
+}
+
+short InverseMap(short value)
+{
+  //Input: Range[0, 255], Output: Range[-127, 127]
+  value -= 127;
+  return value;
+}
+
+short AngleCorrection(short angle) //Check & correct
+{
+  bool constant = 1;
+  
+  if(angle < 0)
+    constant *= -1;  
+  while(angle > 180)
+    angle -= 180;
+  angle *= constant;
+  return angle;
 }
 
 volatile long LeftTickValue()
