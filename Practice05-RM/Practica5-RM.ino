@@ -17,7 +17,12 @@ const float preRotation = 90.0f;
 #define MSG Serial.println("Hola mundo!")
 
 //Mathematic values
-const float wheelRadius = 4.3f; // [cm]
+/* WheelDiameter = 4.3f cm
+ * 
+ * 
+ */
+const float wheelPerimeter = 13.51f; //cm
+const byte ticksPerRevolution = 300;
 const float distanceAxis = 8.9f; // [cm]
 //Pin setup
 const byte leftMotor = 5;  //~ (Goes to 2)
@@ -36,14 +41,21 @@ const byte leftEncoderA = 3;    //Interruption 2
 const byte leftEncoderB = 4;
 const byte rightEncoderB = 7;
 //LDR sensor
-const byte LDR1 = 14; // Amarillo (A0)
-const byte LDR2 = 15; // Blanco   (A1)
-const byte LDR3 = 16; // Naranja  (A2)
-const byte LDR4 = 17; // Verde    (A3)
-const byte LDR5 = 18; // Morado   (A4)
+const byte LDR1 = 14; // Yellow   (A0)
+const byte LDR2 = 15; // White    (A1)
+const byte LDR3 = 16; // Orange   (A2)
+const byte LDR4 = 17; // Green    (A3)
+const byte LDR5 = 18; // Purple   (A4)
 //Interruptions
 volatile long rightCounter;
 volatile long leftCounter;
+//PID Control
+long leftPreviousTime = 0;
+float leftPreviousError = 0;
+float Iedt = 0;
+long rightPreviousTime = 0;
+float rightPreviousError = 0;
+float Sedt = 0;
 //Strings
 String commandStr;
 String command1;
@@ -95,122 +107,61 @@ void loop()
   //MaxLightValue();
   //SerialTestMotors();
   //ObstacleAvoidance();
+  ErrorToPWM(1200, 0);
 
-  LeftControl(1200);
-    
+  //LeftControl(1000);
+  //TestEncoders();
+
   /*/ 
   Scroll(0.0f); RotateRobot(90.0f);
   while(true) {} 
   // */
 }
 
-//Basic setup                 //Correct for left and right use
-long previousTime = 0;
-float previousError = 0;
-float Iedt = 0;
-
-bool prot = true;
-
-void LeftControl(int target)
+void LeftPID(int target)
 {
-  //Constants
-  float tolerance = 1.0f;
+  //Constant values
+  const float tolerance = 15.0f;
+  const int limitVelocity = 80;
   
   //Control constants
-  float Kp = 1.0f;
-  float Ki = -0.01f;
-  float Kd = -0.024f;
+  const float Kp = 1.0f;
+  const float Ki = 0.0021f;
+  const float Kd = 0.0272f;
 
   //Time difference
   long currentPosition = leftCounter;
   long currentTime = micros();
-  float dt = ((float)(currentTime - previousTime))/(1.0e6);
-  previousTime = currentTime;  
+  float dt = ((float)(currentTime - leftPreviousTime))/(1.0e6);
+  leftPreviousTime = currentTime;  
   
   short error = currentPosition - target;
   
   //Derivative & Integral
-  float Dedt = (error - previousError)/(dt);
+  float Dedt = (error - leftPreviousError)/(dt);
   Iedt = Iedt + (error * dt);
 
   //PID Control Signal
   float uFunction = (Kp * error) + (Kd * Dedt) + (Ki * Iedt);
 
-  int limitVelocity = 60;
   if(uFunction > limitVelocity)
     uFunction = limitVelocity;
   else if(uFunction < -limitVelocity)
     uFunction = -limitVelocity;
+  
+  leftPreviousError = error;
 
-  /*
-  Serial.print("u(t)= ");
-  Serial.println(uFunction);*/
-
-  if(abs(error) > 30)
+  if(abs(error) > tolerance)
     MotorMovement("L", uFunction);
   else
     MotorMovement("LOFF", 0);
 
   /*
-  Serial.print("Error: ");
-  Serial.println(error);*/
-  
-  Serial.print("Target: ");
-  Serial.print(target);
-  Serial.print(", ");
-  Serial.print("Position: ");
-  Serial.println(leftCounter);  
-}
-
-void RightControl(int target) //Check & Correct
-{
-  //Constants
-  float tolerance = 1.0f;
-  
-  //Control constants
-  float Kp = 1.0f;
-  float Ki = -0.01f;
-  float Kd = -0.024f;
-
-  //Time difference
-  long currentPosition = rightCounter;
-  long currentTime = micros();
-  float dt = ((float)(currentTime - previousTime))/(1.0e6);
-  previousTime = currentTime;  
-  
-  short error = currentPosition - target;
-  
-  //Derivative & Integral
-  float Dedt = (error - previousError)/(dt);
-  Iedt = Iedt + (error * dt);
-
-  //PID Control Signal
-  float uFunction = (Kp * error) + (Kd * Dedt) + (Ki * Iedt);
-
-  int limitVelocity = 60;
-  if(uFunction > limitVelocity)
-    uFunction = limitVelocity;
-  else if(uFunction < -limitVelocity)
-    uFunction = -limitVelocity;
-
-  /*
   Serial.print("u(t)= ");
   Serial.println(uFunction);*/
-
-  if(abs(error) > 30)
-    MotorMovement("R", uFunction);
-  else
-    MotorMovement("ROFF", 0);
-
-  /*
-  Serial.print("Error: ");
-  Serial.println(error);*/
-  
-  Serial.print("Target: ");
-  Serial.print(target);
-  Serial.print(", ");
-  Serial.print("Position: ");
-  Serial.println(leftCounter);  
+  //Serial.print("Error: ");      Serial.println(abs(error)); 
+  Serial.print(abs(target));          Serial.print(", ");
+  Serial.println(abs(leftCounter));  
 }
 
 void MotorMovement(String command, int speedPWM) 
@@ -534,23 +485,32 @@ short Map(short value)
   return value;
 }
 
-short InverseMap(short value)
-{
-  //Input: Range[0, 255], Output: Range[-127, 127]
-  value -= 127;
-  return value;
+short AngleCorrection(short angle)
+{  
+  while(angle > 180)
+    angle -= 360;
+  while(angle < 180)
+    angle += 360;
+  return angle;
 }
 
-short AngleCorrection(short angle) //Check & correct
+short ErrorToPWM(short maxError, short currentError)
 {
-  bool constant = 1;
-  
-  if(angle < 0)
-    constant *= -1;  
-  while(angle > 180)
-    angle -= 180;
-  angle *= constant;
-  return angle;
+  /* This function transforms an e(t) to a F(s) signal able to get in the plant (Motor)
+   * The mathematic model is linear, described by m = (maxPWMValue - minPWMValue) / (maxError - minError)
+   * m = (127 - 19) / (maxError - 0) => m = 108/target => F(s) = [108*e(t)]/target + minPWMValue
+  */
+  currentError = (108.0f * currentError)/maxError + 19.0f;
+  Serial.println(currentError);   delay(1000);
+  return currentError;
+}
+
+short DistanceToTicks(float distance)
+{
+  short ticks = 22.206f * distance;
+  Serial.println(ticks);
+  delay(1000);
+  return ticks;
 }
 
 volatile long LeftTickValue()
