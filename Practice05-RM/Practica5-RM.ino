@@ -18,8 +18,8 @@ const float preRotation = 90.0f;
 
 //Mathematic values
 /* WheelDiameter = 4.3f cm
- * 
- * 
+ * WheelPerimeter = 13.51f cm
+ * DistanceBetweenWheels = 8.9f cm
  */
 const float wheelPerimeter = 13.51f; //cm
 const byte ticksPerRevolution = 300;
@@ -50,12 +50,9 @@ const byte LDR5 = 18; // Purple   (A4)
 volatile long rightCounter;
 volatile long leftCounter;
 //PID Control
-long leftPreviousTime = 0;
-float leftPreviousError = 0;
-float Iedt = 0;
-long rightPreviousTime = 0;
-float rightPreviousError = 0;
-float Sedt = 0;
+long previousTime[2] = {0, 0};
+float previousError[2] = {0, 0};
+float Iedt[2] = {0, 0}; 
 //Strings
 String commandStr;
 String command1;
@@ -107,9 +104,14 @@ void loop()
   //MaxLightValue();
   //SerialTestMotors();
   //ObstacleAvoidance();
-  ErrorToPWM(1200, 0);
 
-  //LeftControl(1000);
+  //ScrollPID(5.0f);
+  //RightPID(100);
+
+  //MotorPID(300, 'R');
+  //MotorMovement("R", 40);
+
+  //TestArrayLDR();
   //TestEncoders();
 
   /*/ 
@@ -118,50 +120,93 @@ void loop()
   // */
 }
 
-void LeftPID(int target)
+void MotorPID(long target, char symbol)
 {
-  //Constant values
-  const float tolerance = 15.0f;
-  const int limitVelocity = 80;
+  //Control boundaries
+  const float tolerance = 6.0f;
+  const float limitVelocity = 60.0f;
+  const float minVelocity = 20.0f;
   
   //Control constants
-  const float Kp = 1.0f;
-  const float Ki = 0.0021f;
-  const float Kd = 0.0272f;
+  const float Kp = 5.9f;    // Kp = 6.0f
+  const float Ki = 0.01f;   // Ki = 
+  const float Kd = 0.7f;    // Kd = 0.003f
 
-  //Time difference
-  long currentPosition = leftCounter;
-  long currentTime = micros();
-  float dt = ((float)(currentTime - leftPreviousTime))/(1.0e6);
-  leftPreviousTime = currentTime;  
-  
-  short error = currentPosition - target;
+  //Variable declaration 
+  const short motorQuantity = 2;
+  long currentPosition[motorQuantity];
+  long currentTime[motorQuantity];
+  float dt[motorQuantity];
+  short error[motorQuantity];
+  float Dedt[motorQuantity];
+  float uFunction[motorQuantity];
+  long destiny[motorQuantity];
+
+  short motor;
+  if(symbol == 'L')
+  {
+    motor = 0; 
+    currentPosition[motor] = leftCounter; //Time difference
+  }
+  else if(symbol == 'R')
+  {
+    motor = 1;
+    currentPosition[motor] = rightCounter; //Time difference
+  }
+
+  destiny[motor] = target;
+  currentTime[motor] = micros();
+  dt[motor] = ((float)(currentTime[motor] - previousTime[motor]))/(1.0e6);
+  previousTime[motor] = currentTime[motor];
+  error[motor] = currentPosition[motor] - destiny[motor]; //Check target too
   
   //Derivative & Integral
-  float Dedt = (error - leftPreviousError)/(dt);
-  Iedt = Iedt + (error * dt);
+  Dedt[motor] = (error[motor] - previousError[motor])/(dt[motor]);
+  Iedt[motor] = Iedt[motor] + (error[motor] * dt[motor]); //Convert into array
 
   //PID Control Signal
-  float uFunction = (Kp * error) + (Kd * Dedt) + (Ki * Iedt);
+  uFunction[motor] = (Kp * error[motor]) + (Kd * Dedt[motor]) + (Ki * Iedt[motor]);
+  //uFunction = ErrorToPWM(target, uFunction);
 
-  if(uFunction > limitVelocity)
-    uFunction = limitVelocity;
-  else if(uFunction < -limitVelocity)
-    uFunction = -limitVelocity;
+  //Signal processing & Plant
+  if(uFunction[motor] > limitVelocity)
+    uFunction[motor] = limitVelocity;
+  else if(uFunction[motor] < -limitVelocity)
+    uFunction[motor] = -limitVelocity;
+  else if((uFunction[motor] < minVelocity) && (uFunction[motor] > 0))
+    uFunction[motor] = minVelocity;
+  else if((uFunction[motor] < 0) && (uFunction[motor] > -minVelocity)) 
+    uFunction[motor] = -minVelocity;
   
-  leftPreviousError = error;
+  previousError[motor] = error[motor];
 
-  if(abs(error) > tolerance)
-    MotorMovement("L", uFunction);
+  if(abs(error[motor]) > tolerance)
+  {
+    if(symbol == 'L')
+      MotorMovement("L", uFunction[motor]);
+    else if(symbol == 'R')
+      MotorMovement("R", uFunction[motor]);
+  }
   else
-    MotorMovement("LOFF", 0);
+  {
+    if(symbol == 'L')
+      MotorMovement("LOFF", 0);
+    else if(symbol == 'R')
+      MotorMovement("ROFF", 0);
+  }
+  //END of plant
 
-  /*
-  Serial.print("u(t)= ");
-  Serial.println(uFunction);*/
-  //Serial.print("Error: ");      Serial.println(abs(error)); 
+  //Graphing tool in Serial Plotter
   Serial.print(abs(target));          Serial.print(", ");
-  Serial.println(abs(leftCounter));  
+  Serial.print(abs(leftCounter));   Serial.print(", "); 
+  Serial.println(abs(rightCounter));    
+}
+
+void ScrollPID(float distance)
+{
+  long ticks = DistanceToTicks(distance);
+  MotorPID(ticks, 'L');
+  MotorPID(ticks, 'R');
 }
 
 void MotorMovement(String command, int speedPWM) 
@@ -194,7 +239,7 @@ void MotorMovement(String command, int speedPWM)
   else if(command == "R")
   {
     digitalWrite(vel2, HIGH);
-    analogWrite(rightMotor, speedPWM);
+    analogWrite(rightMotor, -speedPWM);
   }
   else if(command == "LOFF")
   {
@@ -447,10 +492,10 @@ void TestInfrared()
 
 void TestEncoders()
 {
-  Serial.print("Right: ");
-  Serial.print(rightCounter);
-  Serial.print(", Left: ");
-  Serial.println(leftCounter);
+  Serial.print("Left: ");
+  Serial.print(leftCounter);
+  Serial.print(", Right: ");
+  Serial.println(rightCounter);
   delay(100);
 }
 
@@ -494,22 +539,19 @@ short AngleCorrection(short angle)
   return angle;
 }
 
-short ErrorToPWM(short maxError, short currentError)
+float ErrorToPWM(long maxError, float currentError)
 {
   /* This function transforms an e(t) to a F(s) signal able to get in the plant (Motor)
    * The mathematic model is linear, described by m = (maxPWMValue - minPWMValue) / (maxError - minError)
-   * m = (127 - 19) / (maxError - 0) => m = 108/target => F(s) = [108*e(t)]/target + minPWMValue
+   * m = (85 - 19) / (maxError - 0) => m = 66/target => F(s) = [66*e(t)]/target + minPWMValue
   */
-  currentError = (108.0f * currentError)/maxError + 19.0f;
-  Serial.println(currentError);   delay(1000);
+  currentError = (66.0f * currentError)/maxError + 20.0f;
   return currentError;
 }
 
-short DistanceToTicks(float distance)
+long DistanceToTicks(float distance)
 {
-  short ticks = 22.206f * distance;
-  Serial.println(ticks);
-  delay(1000);
+  long ticks = 22.206f * distance;
   return ticks;
 }
 
