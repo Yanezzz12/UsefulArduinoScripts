@@ -20,6 +20,7 @@ const float baseAngle = 45.0f;
 #define TURNRIGHT RotatePID(-baseAngle)
 #define STOP MotorMovement("OFF", 0);
 #define MSG Serial.println("Hola mundo!")
+#define INF 1000000
 
 //Mathematic values
 /* WheelDiameter = 4.3f cm
@@ -46,10 +47,6 @@ const byte LDR2 = 15; // White    (A1)
 const byte LDR3 = 16; // Orange   (A2)
 const byte LDR4 = 17; // Green    (A3)
 const byte LDR5 = 18; // Purple   (A4)
-//PID Control
-long previousTime[2] = {0, 0};
-float previousError[2] = {0, 0};
-float Iedt[2] = {0, 0}; 
 //Strings
 String commandStr;
 String command1;
@@ -109,19 +106,29 @@ void loop()
   // */
 }
 
+//==========PID functions=========
+//PID Control
+long previousTime[2] = {0, 0};
+float previousError[2] = {0, 0};
+float Iedt[2] = {0, 0}; 
 float du = 0.0f;
-bool MotorPID(long target, char symbol)
+
+int PID(char direction, long diff, int motor) //Check if diff == error[n]
 {
-  //Variable declaration 
+  //PID Inputs
   const short motorQuantity = 2;
+  
+  //Variable declaration 
   long currentPosition[motorQuantity];
   long currentTime[motorQuantity];
   float dt[motorQuantity];
-  int error[motorQuantity];
+  long error[motorQuantity];
   float Dedt[motorQuantity];
   float uFunction[motorQuantity];
   long destiny[motorQuantity];
-  bool taskCompleted = true;
+  long objective;
+  
+  //Boundaries
   const float limitVelocity[motorQuantity] = {67.0f, 49.0f}; //69 60
   const float minVelocity[motorQuantity] = {19.f, 21.0f};
   
@@ -130,74 +137,42 @@ bool MotorPID(long target, char symbol)
   const float Ki[motorQuantity] = {0.004f, 0.004f};  
   const float Kd[motorQuantity] = {0.025f, 0.025f};  
 
-  //Control boundaries
-  const float tolerance = 4.0f;
+  if(direction == '+')
+    objective = INF;
+  else if(direction == '-')
+    objective = -INF;
 
-  short motor;
-  if(symbol == 'L')
-  {
-    motor = 0; 
-    currentPosition[motor] = LeftCount(); //Time difference
-  }
-  else if(symbol == 'R')
-  {
-    motor = 1;
-    currentPosition[motor] = RightCount(); //Time difference
-  }
+  //Odemetry
+  if(motor == 0)
+    {   currentPosition[motor] = LeftCount();   }
+  else if(motor == 1) 
+    {   currentPosition[motor] = RightCount();  }
 
-  destiny[motor] = target;
+  destiny[motor] = objective;
   currentTime[motor] = micros();
   dt[motor] = ((float)(currentTime[motor] - previousTime[motor]))/(1.0e6);
   previousTime[motor] = currentTime[motor];
   error[motor] = currentPosition[motor] - destiny[motor] - (int)du;
-  
+
   //Derivative & Integral
   Dedt[motor] = (error[motor] - previousError[motor])/(dt[motor]);
   Iedt[motor] = Iedt[motor] + (error[motor] * dt[motor]);
 
-  //PID Control Signal
-  uFunction[motor] = (Kp[motor] * error[motor]) + (Kd[motor] * Dedt[motor]) + (Ki[motor] * Iedt[motor]);
-  uFunction[motor] = ErrorToPWM(target, uFunction[motor]);
+  //PID output signal
+  uFunction[motor] = (Kp[motor] * error[motor]) + (Kd[motor] * Dedt[motor]) + (Ki[motor] * Iedt[motor]); //Signal processing must be done outside this function
 
-  //Signal processing & Plant
-  if(uFunction[motor] > limitVelocity[motor])
-    uFunction[motor] = limitVelocity[motor];
-  else if((uFunction[motor] < minVelocity[motor]) && (uFunction[motor] >= 0))
-    uFunction[motor] = minVelocity[motor];
-  else if((uFunction[motor] < 0) && (uFunction[motor] > -minVelocity[motor])) 
-    uFunction[motor] = -minVelocity[motor];
-  else if(uFunction[motor] < -limitVelocity[motor])
-    uFunction[motor] = -limitVelocity[motor];
-  
   previousError[motor] = error[motor];
 
-  float delta = 0.01f; //-0.03
+  float delta = 0.0f; //-0.03
   if(motor == 1)
-    du = ErrorToPWM(target, delta * (uFunction[0] - uFunction[1])) - minVelocity[0];
+    du = delta * (uFunction[0] - uFunction[1]);
 
-  if(target < 0)
+  if(direction == '-')
     uFunction[motor] *= -1;
 
-  if(abs(error[motor]) > tolerance)
-  {
-    taskCompleted = false;
-    if(symbol == 'L')
-      MotorMovement("L", uFunction[motor]);
-    else if(symbol == 'R')
-      MotorMovement("R", uFunction[motor]);
-  }
-  else
-  {
-    if(symbol == 'L')
-      MotorMovement("LOFF", 0);
-    else if(symbol == 'R')
-      MotorMovement("ROFF", 0);
-    taskCompleted == true;
-  }
-  return taskCompleted;
+  return uFunction[0], uFunction[1];
 }
 
-//==========PID functions=========
 void StraightMovement()
 {
   //TODO:
@@ -223,8 +198,9 @@ void PlotPID(long ticks)
   Serial.print("RightWheel:");  Serial.print(RightCount());  Serial.println(","); 
 }
 
-void ScrollPID(float distance)
+void ScrollPID(float distance) //Inactive funtion
 {
+  /*
   long ticks = DistanceToTicks(distance);
   unsigned long startTime;
   unsigned long currTime = 0;
@@ -252,8 +228,9 @@ void ScrollPID(float distance)
   } // */
 }
 
-void RotatePID(float angle)
+void RotatePID(float angle) //Inactive function
 {
+  /*
   long ticks = AngleToTicks(angle);
   unsigned long startTime;
   unsigned long currTime = 0;
@@ -281,7 +258,7 @@ void RotatePID(float angle)
 
 void LightFollowerAlgorithm()
 {
-  byte direction = MaxLightSensor();
+  byte direction = MaxLightIndex();
   int MaxLightValue = 400; //Bias 
 
   switch(direction) //Modificar casos
@@ -295,13 +272,14 @@ void LightFollowerAlgorithm()
     case 2: //Luz a la derecha
       //RotatePID(); //Hasta que el mayor valor sea el del LDR de enfrente
       break;
-    case 3:
+    case 3: //Luz detrás
       //RotatePID(); //Hasta que el mayor valor sea el del LDR de enfrente
-      break; //Luz detrás
+      break; 
   }
 
-  if(LDRvalue[direction] > MaxLightValue) //Check if the position is valid
-    STOP;
+  //if(LDR[enfrente] > umbralLuzMaximo) -> MiniBot se detiene
+  //if(LDRvalue[direction] > MaxLightValue) 
+  //  STOP;
 }
 
 void Scroll(float distance)     //Test function
@@ -395,12 +373,12 @@ void MotorMovement(String command, int speedPWM)
   if(command == "L")
   {
     digitalWrite(vel1, HIGH);
-    analogWrite(leftMotor, speedPWM);  
+    analogWrite(leftMotor, -speedPWM);  
   }
   else if(command == "R")
   {
     digitalWrite(vel2, HIGH);
-    analogWrite(rightMotor, -speedPWM);
+    analogWrite(rightMotor, speedPWM);
   }
   else if(command == "LOFF")
   {
@@ -445,25 +423,36 @@ String ReadCommands()
   return command1, command2;  
 }
 
-byte MaxLightSensor()
+byte MaxLightIndex()
 {
   //Detects LDR with higher value and returns an index
   const byte sensorQuantity = 5;
   byte maxLightIndex = 0;
-  unsigned int LDRvalue[sensorQuantity];
+  int LDRvalue[sensorQuantity];
   
-  for(byte i = 0; i < sensorQuantity; i++)
+  for(byte i = 0; i < sensorQuantity; i++) //Checks all LDR values
     LDRvalue[i] = analogRead(i + 14);
     
   for(byte i = 1; i < sensorQuantity; i++)
     if(LDRvalue[maxLightIndex] < LDRvalue[i])
       maxLightIndex = i;
 
-  //
   Serial.print("Max value: ");
-  Serial.println(maxLightIndex);
-  // */
-  return maxLightIndex; 
+  Serial.println(maxLightIndex); // */
+  
+  return maxLightIndex;
+}
+
+int LDRArray()
+{
+  //Returns the array of values of light sensors
+  const byte sensorQuantity = 5;
+  int LDRvalue[sensorQuantity];
+
+  for(byte i = 0; i < sensorQuantity; i++) //Checks all LDR values
+    LDRvalue[i] = analogRead(i + 14);
+
+  return LDRvalue;
 }
 
 void ObstacleAvoidance() //Obstacle avoidance algorithm 
