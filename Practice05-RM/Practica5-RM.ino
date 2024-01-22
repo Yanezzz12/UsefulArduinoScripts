@@ -197,6 +197,25 @@ bool MotorPID(long target, char symbol)
   return taskCompleted;
 }
 
+//==========PID functions=========
+void StraightMovement()
+{
+  //TODO:
+  /*  >> The robot has to move in a straight line with PID control
+      >> The basic structure is loop() { StraightMovement() }
+      >> Global variables needed
+      >> We need to use MotorMovemnt() 
+  */
+
+  Serial.print("Nothing");
+}
+
+void TurnMovement()
+{
+  Serial.print("Nothing");
+}
+//==========PID functions=========
+
 void PlotPID(long ticks)
 {
   Serial.print("Target:");      Serial.print(ticks);         Serial.print(",");
@@ -285,7 +304,7 @@ void LightFollowerAlgorithm()
     STOP;
 }
 
-void Scroll(float distance)
+void Scroll(float distance)     //Test function
 {
   //This parameters shows a 10 [cm] scroll
   const float baseDistance = 10.0f;
@@ -322,7 +341,7 @@ void Scroll(float distance)
   else { }
 }
 
-void RotateRobot(float angle) //Test function
+void RotateRobot(float angle)   //Test function
 { 
   //This parameters show a 90 degree rotation
   const float baseRotation = 90.0f;
